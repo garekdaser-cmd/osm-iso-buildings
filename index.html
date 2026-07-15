@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OSM Iso Buildings</title>
+    <link rel="icon" href="data:,">
+  </head>
+  <body>
+    <div id="app">
+      <div id="map"></div>
+      <div id="scene-container" class="hidden"></div>
+
+      <div id="hud">
+        <div id="hud-title">
+          <span class="hud-mark">◆</span>
+          <span>OSM ISO</span>
+        </div>
+
+        <div id="hud-status">
+          <span id="status-text">Наведите карту на нужный участок</span>
+        </div>
+
+        <div id="hud-controls">
+          <button id="btn-render" type="button">Построить 3D</button>
+          <button id="btn-back" type="button" class="hidden">← К карте</button>
+        </div>
+
+        <div id="hud-legend" class="hidden">
+          <div class="legend-row"><span class="swatch swatch-exact"></span>height из OSM</div>
+          <div class="legend-row"><span class="swatch swatch-levels"></span>по этажам</div>
+          <div class="legend-row"><span class="swatch swatch-guess"></span>оценка</div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

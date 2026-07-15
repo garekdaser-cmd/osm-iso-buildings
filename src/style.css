@@ -1,0 +1,184 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+:root {
+  --ink: #0b1e2d;
+  --ink-2: #12293d;
+  --paper: #eef3f3;
+  --line: #3a5a70;
+  --line-dim: rgba(94, 234, 212, 0.18);
+  --cyan: #5eead4;
+  --amber: #f2a65a;
+  --text-dim: #7fa3b5;
+
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  overflow: hidden;
+}
+
+#app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+#map, #scene-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#scene-container {
+  background: var(--ink);
+  background-image:
+    linear-gradient(var(--line-dim) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-dim) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.hidden { display: none !important; }
+
+/* --- HUD --- */
+#hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 18px;
+  background: linear-gradient(180deg, rgba(11,30,45,0.92) 0%, rgba(11,30,45,0.0) 100%);
+  pointer-events: none;
+}
+
+#hud > * { pointer-events: auto; }
+
+#hud-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-size: 15px;
+  color: var(--paper);
+  text-shadow: 0 1px 8px rgba(0,0,0,0.5);
+}
+
+.hud-mark {
+  color: var(--cyan);
+  font-size: 12px;
+}
+
+#hud-status {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-shadow: 0 1px 8px rgba(0,0,0,0.6);
+  min-width: 0;
+}
+
+#status-text {
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+#hud-controls {
+  display: flex;
+  gap: 8px;
+}
+
+button {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  padding: 9px 16px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  background: rgba(18, 41, 61, 0.85);
+  color: var(--cyan);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+  backdrop-filter: blur(6px);
+}
+
+button:hover {
+  border-color: var(--cyan);
+  background: rgba(18, 41, 61, 1);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: wait;
+}
+
+#btn-render {
+  border-color: var(--cyan);
+  color: var(--ink);
+  background: var(--cyan);
+  font-weight: 600;
+}
+
+#btn-render:hover {
+  background: #8ff2e3;
+}
+
+#hud-legend {
+  position: absolute;
+  bottom: 16px;
+  left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: rgba(11,30,45,0.75);
+  border: 1px solid var(--line-dim);
+  border-radius: 4px;
+  padding: 10px 12px;
+  backdrop-filter: blur(6px);
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.swatch-exact { background: #5eead4; }
+.swatch-levels { background: #7dd3fc; }
+.swatch-guess { background: #64748b; }
+
+/* maplibre attribution readability tweak */
+.maplibregl-ctrl-attrib {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
