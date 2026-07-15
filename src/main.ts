@@ -20,6 +20,7 @@ const riskPanel = document.getElementById('risk-panel') as HTMLElement;
 const riskClose = document.getElementById('risk-close') as HTMLButtonElement;
 const riskTitle = document.getElementById('risk-title') as HTMLElement;
 const riskFloor = document.getElementById('risk-floor') as HTMLInputElement;
+const riskFloorHint = document.getElementById('risk-floor-hint') as HTMLElement;
 const riskFacade = document.getElementById('risk-facade') as HTMLSelectElement;
 const riskCalcBtn = document.getElementById('risk-calc') as HTMLButtonElement;
 const riskStatus = document.getElementById('risk-status') as HTMLElement;
@@ -140,9 +141,23 @@ function buildingLabel(b: Building): string {
   return `Здание · ${b.tags.building !== 'yes' ? b.tags.building : 'тип не указан'}`;
 }
 
+function heightSourceLabel(source: Building['heightSource']): string {
+  if (source === 'exact') return 'точная высота из OSM';
+  if (source === 'levels') return 'по этажам из OSM';
+  return 'нет данных в OSM, грубая оценка';
+}
+
 function handleBuildingSelect(building: Building) {
   selectedBuilding = building;
   riskTitle.textContent = buildingLabel(building);
+
+  const floorsGuess = Math.max(1, Math.round(building.heightMeters / 3));
+  riskFloor.value = String(floorsGuess);
+  riskFloor.max = String(Math.max(40, floorsGuess));
+  riskFloorHint.textContent = `Высота ${building.heightMeters.toFixed(0)} м → ~${floorsGuess} эт. (${heightSourceLabel(
+    building.heightSource
+  )}). Поправьте, если это не так.`;
+
   riskResult.classList.add('hidden');
   riskStatus.textContent = '';
   riskPanel.classList.remove('hidden');

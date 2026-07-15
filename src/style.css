@@ -254,6 +254,22 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: 3px;
   color: var(--paper);
+  color-scheme: dark;
+}
+
+/* Список опций у нативного select рендерится браузером со своим фоном
+   (обычно светлым) — задаём тёмный текст явно, иначе он сливается с фоном */
+.risk-field select option {
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.risk-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-style: italic;
 }
 
 #risk-calc {

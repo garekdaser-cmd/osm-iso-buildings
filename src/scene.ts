@@ -29,6 +29,11 @@ export class IsoScene {
   private pointerDownPos = { x: 0, y: 0 };
   private azimuth = Math.PI / 4; // текущий угол по горизонтали
 
+  // зум (колесо мыши / pinch)
+  private zoomFactor = 1;
+  private pinchStartDist: number | null = null;
+  private pinchStartZoom = 1;
+
   constructor(container: HTMLElement) {
     this.container = container;
 
@@ -83,6 +88,51 @@ export class IsoScene {
       this.azimuth += dx * 0.005;
       this.updateCameraPosition();
     });
+
+    // зум колесом мыши
+    dom.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 1.1 : 1 / 1.1;
+        this.zoomFactor = this.clampZoom(this.zoomFactor * factor);
+        this.handleResize();
+      },
+      { passive: false }
+    );
+
+    // зум щипком (pinch) на тачскринах
+    dom.addEventListener(
+      'touchstart',
+      (e) => {
+        if (e.touches.length === 2) {
+          this.pinchStartDist = touchDistance(e.touches);
+          this.pinchStartZoom = this.zoomFactor;
+          this.isDragging = false;
+        }
+      },
+      { passive: true }
+    );
+    dom.addEventListener(
+      'touchmove',
+      (e) => {
+        if (e.touches.length === 2 && this.pinchStartDist) {
+          e.preventDefault();
+          const dist = touchDistance(e.touches);
+          const ratio = this.pinchStartDist / dist;
+          this.zoomFactor = this.clampZoom(this.pinchStartZoom * ratio);
+          this.handleResize();
+        }
+      },
+      { passive: false }
+    );
+    dom.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) this.pinchStartDist = null;
+    });
+  }
+
+  private clampZoom(v: number): number {
+    return Math.min(4, Math.max(0.2, v));
   }
 
   private handleClick(clientX: number, clientY: number) {
@@ -143,7 +193,7 @@ export class IsoScene {
     const h = this.container.clientHeight;
     this.renderer.setSize(w, h);
     const aspect = w / h;
-    const frustum = this.frustumSize ?? 300;
+    const frustum = (this.frustumSize ?? 300) * this.zoomFactor;
     this.camera.left = (-frustum * aspect) / 2;
     this.camera.right = (frustum * aspect) / 2;
     this.camera.top = frustum / 2;
@@ -185,6 +235,7 @@ export class IsoScene {
     this.frustumSize = maxExtent * 2.3;
     this.radius = maxExtent * 3.5;
     this.azimuth = Math.PI / 4;
+    this.zoomFactor = 1;
     this.handleResize();
     this.updateCameraPosition();
 
@@ -247,6 +298,11 @@ function buildingMesh(b: Building): { group: THREE.Group; mesh: THREE.Mesh } | n
   group.add(mesh);
   group.add(line);
   return { group, mesh };
+}
+
+function touchDistance(touches: TouchList): number {
+  const [a, b] = [touches[0], touches[1]];
+  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
 }
 
 function disposeGroup(group: THREE.Group) {
