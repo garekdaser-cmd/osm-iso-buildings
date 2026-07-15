@@ -32,6 +32,41 @@
           <div class="legend-row"><span class="swatch swatch-guess"></span>оценка</div>
         </div>
       </div>
+
+      <div id="risk-panel" class="hidden">
+        <button id="risk-close" type="button" class="risk-close" aria-label="Закрыть">×</button>
+        <h2 id="risk-title">Оценка риска</h2>
+        <div class="risk-disclaimer" id="risk-disclaimer-top"></div>
+
+        <label class="risk-field">
+          Этаж, на котором вы находитесь
+          <input type="number" id="risk-floor" value="1" min="1" max="40" />
+        </label>
+
+        <label class="risk-field">
+          Куда смотрят окна (сторона дома)
+          <select id="risk-facade">
+            <option value="-1" selected>Не указано / несколько сторон</option>
+            <option value="0">Север</option>
+            <option value="45">Северо-восток</option>
+            <option value="90">Восток</option>
+            <option value="135">Юго-восток</option>
+            <option value="180">Юг</option>
+            <option value="225">Юго-запад</option>
+            <option value="270">Запад</option>
+            <option value="315">Северо-запад</option>
+          </select>
+        </label>
+
+        <button id="risk-calc" type="button">Рассчитать</button>
+        <div class="risk-status" id="risk-status"></div>
+
+        <div id="risk-result" class="hidden">
+          <div class="risk-score" id="risk-score"></div>
+          <div id="risk-rows"></div>
+          <div class="risk-disclaimer" id="risk-disclaimer-bottom"></div>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -1,4 +1,4 @@
-import type { BBox } from './geo';
+import type { BBox, LatLon } from './geo';
 
 // Публичные зеркала Overpass API — при отказе одного пробуем следующее
 const ENDPOINTS = [
@@ -39,6 +39,48 @@ out geom;`;
 
 export async function fetchBuildings(bbox: BBox): Promise<OverpassElement[]> {
   const query = buildQuery(bbox);
+  return runQuery(query);
+}
+
+export interface HazardElement {
+  lat: number;
+  lon: number;
+  tags: Record<string, string>;
+}
+
+function buildHazardQuery(center: LatLon, radiusM: number): string {
+  const { lat, lon } = center;
+  return `[out:json][timeout:25];
+(
+  nwr["military"](around:${radiusM},${lat},${lon});
+  nwr["landuse"="military"](around:${radiusM},${lat},${lon});
+  nwr["landuse"="industrial"](around:${Math.min(radiusM, 2500)},${lat},${lon});
+  nwr["man_made"="works"](around:${Math.min(radiusM, 2500)},${lat},${lon});
+  nwr["power"="substation"](around:${Math.min(radiusM, 2000)},${lat},${lon});
+  nwr["power"="plant"](around:${Math.min(radiusM, 4000)},${lat},${lon});
+  nwr["man_made"~"storage_tank|fuel"](around:${Math.min(radiusM, 2500)},${lat},${lon});
+);
+out center tags;`;
+}
+
+export async function fetchHazards(center: LatLon, radiusM = 5000): Promise<HazardElement[]> {
+  const query = buildHazardQuery(center, radiusM);
+  const elements = await runQuery(query);
+  const hazards: HazardElement[] = [];
+  for (const el of elements as unknown as Array<{
+    lat?: number;
+    lon?: number;
+    center?: { lat: number; lon: number };
+    tags?: Record<string, string>;
+  }>) {
+    const point = el.center ?? (el.lat !== undefined && el.lon !== undefined ? { lat: el.lat, lon: el.lon } : null);
+    if (!point || !el.tags) continue;
+    hazards.push({ lat: point.lat, lon: point.lon, tags: el.tags });
+  }
+  return hazards;
+}
+
+async function runQuery(query: string): Promise<OverpassElement[]> {
   let lastError: unknown = null;
 
   for (const endpoint of ENDPOINTS) {

@@ -1,9 +1,10 @@
 import './style.css';
 import { initMap } from './map';
 import { fetchBuildings } from './overpass';
-import { parseBuildings } from './buildings';
+import { parseBuildings, type Building } from './buildings';
 import { bboxAreaKm2, bboxCenter, type BBox } from './geo';
 import { IsoScene } from './scene';
+import { computeRisk, RISK_DISCLAIMER } from './risk';
 
 const MIN_ZOOM_FOR_3D = 15;
 const MAX_AREA_KM2 = 1.2; // защита от слишком тяжёлых Overpass-запросов
@@ -14,6 +15,25 @@ const btnRender = document.getElementById('btn-render') as HTMLButtonElement;
 const btnBack = document.getElementById('btn-back') as HTMLButtonElement;
 const statusText = document.getElementById('status-text') as HTMLElement;
 const legend = document.getElementById('hud-legend') as HTMLElement;
+
+const riskPanel = document.getElementById('risk-panel') as HTMLElement;
+const riskClose = document.getElementById('risk-close') as HTMLButtonElement;
+const riskTitle = document.getElementById('risk-title') as HTMLElement;
+const riskFloor = document.getElementById('risk-floor') as HTMLInputElement;
+const riskFacade = document.getElementById('risk-facade') as HTMLSelectElement;
+const riskCalcBtn = document.getElementById('risk-calc') as HTMLButtonElement;
+const riskStatus = document.getElementById('risk-status') as HTMLElement;
+const riskResult = document.getElementById('risk-result') as HTMLElement;
+const riskScoreEl = document.getElementById('risk-score') as HTMLElement;
+const riskRowsEl = document.getElementById('risk-rows') as HTMLElement;
+const riskDisclaimerTop = document.getElementById('risk-disclaimer-top') as HTMLElement;
+const riskDisclaimerBottom = document.getElementById('risk-disclaimer-bottom') as HTMLElement;
+
+riskDisclaimerTop.textContent = RISK_DISCLAIMER;
+riskDisclaimerBottom.textContent = RISK_DISCLAIMER;
+
+let currentBuildings: Building[] = [];
+let selectedBuilding: Building | null = null;
 
 const map = initMap(mapContainer);
 let scene: IsoScene | null = null;
@@ -82,8 +102,11 @@ btnRender.addEventListener('click', async () => {
     btnBack.classList.remove('hidden');
     legend.classList.remove('hidden');
 
+    currentBuildings = buildings;
+
     if (!scene) {
       scene = new IsoScene(sceneContainer);
+      scene.onSelect(handleBuildingSelect);
     }
     scene.render(buildings);
 
@@ -91,7 +114,7 @@ btnRender.addEventListener('click', async () => {
     const levels = buildings.filter((b) => b.heightSource === 'levels').length;
     const guess = buildings.filter((b) => b.heightSource === 'guess').length;
     setStatus(
-      `Зданий: ${buildings.length} · height: ${exact} · по этажам: ${levels} · оценка: ${guess}. Тяните мышью, чтобы вращать.`
+      `Зданий: ${buildings.length} · height: ${exact} · по этажам: ${levels} · оценка: ${guess}. Тяните мышью — вращать, клик по зданию — оценка риска.`
     );
   } catch (err) {
     console.error(err);
@@ -105,6 +128,68 @@ btnBack.addEventListener('click', () => {
   sceneContainer.classList.add('hidden');
   btnBack.classList.add('hidden');
   legend.classList.add('hidden');
+  riskPanel.classList.add('hidden');
   mapContainer.classList.remove('hidden');
   map.resize();
+});
+
+function buildingLabel(b: Building): string {
+  const addr = [b.tags['addr:street'], b.tags['addr:housenumber']].filter(Boolean).join(', ');
+  if (addr) return addr;
+  if (b.tags.name) return b.tags.name;
+  return `Здание · ${b.tags.building !== 'yes' ? b.tags.building : 'тип не указан'}`;
+}
+
+function handleBuildingSelect(building: Building) {
+  selectedBuilding = building;
+  riskTitle.textContent = buildingLabel(building);
+  riskResult.classList.add('hidden');
+  riskStatus.textContent = '';
+  riskPanel.classList.remove('hidden');
+}
+
+riskClose.addEventListener('click', () => {
+  riskPanel.classList.add('hidden');
+});
+
+riskCalcBtn.addEventListener('click', async () => {
+  if (!selectedBuilding) return;
+  const building = selectedBuilding;
+
+  riskCalcBtn.disabled = true;
+  riskResult.classList.add('hidden');
+
+  try {
+    const myFloor = Math.max(1, parseInt(riskFloor.value, 10) || 1);
+    const facadeVal = parseInt(riskFacade.value, 10);
+    const facadeAzimuth = facadeVal >= 0 ? facadeVal : null;
+
+    const nearbyBuildings = currentBuildings
+      .filter((b) => b.id !== building.id)
+      .map((b) => ({ centroid: b.centroid, heightMeters: b.heightMeters }));
+
+    const result = await computeRisk({
+      home: building.centroid,
+      houseHeightM: building.heightMeters,
+      myFloor,
+      facadeAzimuth,
+      nearbyBuildings,
+      onStatus: (text) => {
+        riskStatus.textContent = text;
+      },
+    });
+
+    riskScoreEl.className = `risk-score ${result.level}`;
+    riskScoreEl.innerHTML = `${result.score}/100<span class="risk-score-label">${result.levelLabel} расчётный риск</span>`;
+    riskRowsEl.innerHTML = result.rows
+      .map((r) => `<div class="risk-row"><span>${r.label}</span><b>${r.value}</b></div>`)
+      .join('');
+    riskResult.classList.remove('hidden');
+    riskStatus.textContent = '';
+  } catch (err) {
+    console.error(err);
+    riskStatus.textContent = 'Ошибка расчёта (не отвечает Overpass или Open-Meteo) — попробуйте ещё раз';
+  } finally {
+    riskCalcBtn.disabled = false;
+  }
 });

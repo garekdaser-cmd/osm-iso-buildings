@@ -6,6 +6,7 @@ export type HeightSource = 'exact' | 'levels' | 'guess';
 export interface Building {
   id: string;
   footprint: LocalPoint[]; // замкнутый контур в локальных метрах
+  centroid: LatLon; // реальные координаты центра — нужны для доп. запросов (риск и т.п.)
   heightMeters: number;
   heightSource: HeightSource;
   tags: Record<string, string>;
@@ -100,6 +101,20 @@ function extractRings(el: OverpassElement): LatLon[][] {
   return [];
 }
 
+function ringCentroid(ring: LatLon[]): LatLon {
+  // Простой средний центроид по узлам контура — для наших целей
+  // (запрос к API по этой точке) точности среднего по вершинам достаточно,
+  // настоящий geometric centroid тут избыточен.
+  let latSum = 0;
+  let lonSum = 0;
+  const n = ring.length;
+  for (const p of ring) {
+    latSum += p.lat;
+    lonSum += p.lon;
+  }
+  return { lat: latSum / n, lon: lonSum / n };
+}
+
 export function parseBuildings(elements: OverpassElement[], center: LatLon): Building[] {
   const project = makeProjector(center);
   const buildings: Building[] = [];
@@ -115,6 +130,7 @@ export function parseBuildings(elements: OverpassElement[], center: LatLon): Bui
       buildings.push({
         id: `${el.type}/${el.id}`,
         footprint,
+        centroid: ringCentroid(ring),
         heightMeters: meters,
         heightSource: source,
         tags: el.tags,

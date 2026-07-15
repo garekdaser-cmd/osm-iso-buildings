@@ -17,9 +17,16 @@ export class IsoScene {
   private container: HTMLElement;
   private group: THREE.Group | null = null;
 
+  private buildingsById = new Map<string, Building>();
+  private meshesById = new Map<string, THREE.Mesh>();
+  private selectedId: string | null = null;
+  private onBuildingSelect: ((b: Building) => void) | null = null;
+  private raycaster = new THREE.Raycaster();
+
   // для вращения перетаскиванием мыши
   private isDragging = false;
   private lastPointer = { x: 0, y: 0 };
+  private pointerDownPos = { x: 0, y: 0 };
   private azimuth = Math.PI / 4; // текущий угол по горизонтали
 
   constructor(container: HTMLElement) {
@@ -47,6 +54,10 @@ export class IsoScene {
     this.handleResize();
   }
 
+  onSelect(cb: (b: Building) => void) {
+    this.onBuildingSelect = cb;
+  }
+
   private bindInteraction() {
     const dom = this.renderer.domElement;
     dom.style.cursor = 'grab';
@@ -54,11 +65,16 @@ export class IsoScene {
     dom.addEventListener('pointerdown', (e) => {
       this.isDragging = true;
       this.lastPointer = { x: e.clientX, y: e.clientY };
+      this.pointerDownPos = { x: e.clientX, y: e.clientY };
       dom.style.cursor = 'grabbing';
     });
-    window.addEventListener('pointerup', () => {
+    window.addEventListener('pointerup', (e) => {
       this.isDragging = false;
       dom.style.cursor = 'grab';
+      const movedDist = Math.hypot(e.clientX - this.pointerDownPos.x, e.clientY - this.pointerDownPos.y);
+      if (movedDist < 4) {
+        this.handleClick(e.clientX, e.clientY);
+      }
     });
     window.addEventListener('pointermove', (e) => {
       if (!this.isDragging || !this.group) return;
@@ -67,6 +83,47 @@ export class IsoScene {
       this.azimuth += dx * 0.005;
       this.updateCameraPosition();
     });
+  }
+
+  private handleClick(clientX: number, clientY: number) {
+    if (!this.group) return;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    );
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const intersects = this.raycaster.intersectObjects(this.group.children, true);
+    for (const hit of intersects) {
+      const id = hit.object.userData.buildingId as string | undefined;
+      if (id) {
+        this.selectBuilding(id);
+        return;
+      }
+    }
+  }
+
+  private selectBuilding(id: string) {
+    const building = this.buildingsById.get(id);
+    if (!building) return;
+
+    // снимаем подсветку с предыдущего выбранного
+    if (this.selectedId) {
+      const prevMesh = this.meshesById.get(this.selectedId);
+      if (prevMesh) {
+        const mats = Array.isArray(prevMesh.material) ? prevMesh.material : [prevMesh.material];
+        for (const m of mats) (m as THREE.MeshStandardMaterial).emissive?.setHex(0x000000);
+      }
+    }
+
+    this.selectedId = id;
+    const mesh = this.meshesById.get(id);
+    if (mesh) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) (m as THREE.MeshStandardMaterial).emissive?.setHex(0xf2a65a);
+    }
+
+    this.onBuildingSelect?.(building);
   }
 
   private radius = 500;
@@ -102,13 +159,19 @@ export class IsoScene {
       disposeGroup(this.group);
     }
 
+    this.buildingsById.clear();
+    this.meshesById.clear();
+    this.selectedId = null;
+
     const group = new THREE.Group();
     let maxExtent = 10;
 
     for (const b of buildings) {
-      const mesh = buildingMesh(b);
-      if (mesh) {
-        group.add(mesh);
+      const built = buildingMesh(b);
+      if (built) {
+        group.add(built.group);
+        this.buildingsById.set(b.id, b);
+        this.meshesById.set(b.id, built.mesh);
         for (const p of b.footprint) {
           maxExtent = Math.max(maxExtent, Math.abs(p.x), Math.abs(p.z));
         }
@@ -140,7 +203,7 @@ export class IsoScene {
   }
 }
 
-function buildingMesh(b: Building): THREE.Group | null {
+function buildingMesh(b: Building): { group: THREE.Group; mesh: THREE.Mesh } | null {
   if (b.footprint.length < 3) return null;
 
   const shape = new THREE.Shape();
@@ -172,6 +235,7 @@ function buildingMesh(b: Building): THREE.Group | null {
 
   // ExtrudeGeometry: группа 0 — торцы (верх/низ, т.е. "крыша"), группа 1 — боковые стены
   const mesh = new THREE.Mesh(geometry, [roofMaterial, wallMaterial]);
+  mesh.userData.buildingId = b.id;
 
   const edges = new THREE.EdgesGeometry(geometry, 25);
   const line = new THREE.LineSegments(
@@ -182,7 +246,7 @@ function buildingMesh(b: Building): THREE.Group | null {
   const group = new THREE.Group();
   group.add(mesh);
   group.add(line);
-  return group;
+  return { group, mesh };
 }
 
 function disposeGroup(group: THREE.Group) {
