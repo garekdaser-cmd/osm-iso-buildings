@@ -258,9 +258,12 @@ function buildingMesh(b: Building): { group: THREE.Group; mesh: THREE.Mesh } | n
   if (b.footprint.length < 3) return null;
 
   const shape = new THREE.Shape();
-  shape.moveTo(b.footprint[0].x, b.footprint[0].z);
+  // rotateX(-90°) ниже переводит локальный Y формы в мировой Z с инверсией знака
+  // (иначе вся сцена зеркалится по оси север-юг) — поэтому здесь заранее
+  // подаём -z, компенсируя эту инверсию.
+  shape.moveTo(b.footprint[0].x, -b.footprint[0].z);
   for (let i = 1; i < b.footprint.length; i++) {
-    shape.lineTo(b.footprint[i].x, b.footprint[i].z);
+    shape.lineTo(b.footprint[i].x, -b.footprint[i].z);
   }
   shape.closePath();
 
@@ -277,11 +280,13 @@ function buildingMesh(b: Building): { group: THREE.Group; mesh: THREE.Mesh } | n
     color: COLORS[b.heightSource],
     roughness: 0.7,
     metalness: 0.05,
+    side: THREE.DoubleSide, // порядок обхода колец в OSM не гарантирован — подстраховка от невидимых граней
   });
   const wallMaterial = new THREE.MeshStandardMaterial({
     color: WALL_COLOR,
     roughness: 0.9,
     metalness: 0.0,
+    side: THREE.DoubleSide,
   });
 
   // ExtrudeGeometry: группа 0 — торцы (верх/низ, т.е. "крыша"), группа 1 — боковые стены

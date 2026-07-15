@@ -11,6 +11,7 @@ const MAX_AREA_KM2 = 1.2; // защита от слишком тяжёлых Ove
 
 const mapContainer = document.getElementById('map') as HTMLElement;
 const sceneContainer = document.getElementById('scene-container') as HTMLElement;
+const mapBorderNote = document.getElementById('map-border-note') as HTMLElement;
 const btnRender = document.getElementById('btn-render') as HTMLButtonElement;
 const btnBack = document.getElementById('btn-back') as HTMLButtonElement;
 const statusText = document.getElementById('status-text') as HTMLElement;
@@ -99,6 +100,7 @@ btnRender.addEventListener('click', async () => {
     }
 
     mapContainer.classList.add('hidden');
+    mapBorderNote.classList.add('hidden');
     sceneContainer.classList.remove('hidden');
     btnBack.classList.remove('hidden');
     legend.classList.remove('hidden');
@@ -131,6 +133,7 @@ btnBack.addEventListener('click', () => {
   legend.classList.add('hidden');
   riskPanel.classList.add('hidden');
   mapContainer.classList.remove('hidden');
+  mapBorderNote.classList.remove('hidden');
   map.resize();
 });
 

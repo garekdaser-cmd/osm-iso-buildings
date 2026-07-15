@@ -1,5 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { BORDER } from './border';
 
 // Стандартные растровые тайлы OSM — без ключа API.
 // Для собственного продакшена уместно завести отдельный tile-сервер
@@ -29,9 +30,9 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
   ],
 };
 
-// Варшава — по умолчанию, чтобы карта сразу открывалась на населённом участке
-const DEFAULT_CENTER: [number, number] = [21.0122, 52.2297];
-const DEFAULT_ZOOM = 16;
+// Брянск — по умолчанию, целевой регион использования приложения
+const DEFAULT_CENTER: [number, number] = [34.3634, 53.2436];
+const DEFAULT_ZOOM = 15;
 
 export function initMap(container: HTMLElement): maplibregl.Map {
   const map = new maplibregl.Map({
@@ -43,6 +44,43 @@ export function initMap(container: HTMLElement): maplibregl.Map {
   });
 
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+
+  map.on('load', () => {
+    const borderGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'LineString',
+        coordinates: BORDER.map((p) => [p.lon, p.lat]),
+      },
+    };
+
+    map.addSource('rf-ua-border', { type: 'geojson', data: borderGeoJson });
+
+    // подсветка под линией — чтобы граница читалась поверх любой подложки
+    map.addLayer({
+      id: 'rf-ua-border-glow',
+      type: 'line',
+      source: 'rf-ua-border',
+      paint: {
+        'line-color': '#f87171',
+        'line-width': 9,
+        'line-opacity': 0.18,
+        'line-blur': 3,
+      },
+    });
+
+    map.addLayer({
+      id: 'rf-ua-border-line',
+      type: 'line',
+      source: 'rf-ua-border',
+      paint: {
+        'line-color': '#f87171',
+        'line-width': 2.5,
+        'line-dasharray': [2, 2],
+      },
+    });
+  });
 
   return map;
 }
