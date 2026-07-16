@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import type { Building } from './buildings';
+import { centroidOfLocalPoints, type LocalPoint } from './geo';
 
 const COLORS: Record<Building['heightSource'], number> = {
   exact: 0x5eead4,
@@ -9,6 +11,20 @@ const COLORS: Record<Building['heightSource'], number> = {
 
 const WALL_COLOR = 0x1a3548;
 const EDGE_COLOR = 0x0b1e2d;
+
+const LEVEL_COLOR: Record<'low' | 'mid' | 'high', number> = {
+  low: 0x4ade80,
+  mid: 0xfbbf24,
+  high: 0xf87171,
+};
+
+export interface RiskVisualizationInput {
+  buildingCentroid: LocalPoint;
+  buildingHeight: number;
+  bearingToBorderDeg: number;
+  level: 'low' | 'mid' | 'high';
+  hazards: Array<{ x: number; z: number; name: string; radiusM: number }>;
+}
 
 export class IsoScene {
   private renderer: THREE.WebGLRenderer;
@@ -22,6 +38,13 @@ export class IsoScene {
   private selectedId: string | null = null;
   private onBuildingSelect: ((b: Building) => void) | null = null;
   private raycaster = new THREE.Raycaster();
+
+  private labelRenderer: CSS2DRenderer;
+  private labelObjects: CSS2DObject[] = [];
+  private riskGroup: THREE.Group | null = null;
+  private riskLabelObjects: CSS2DObject[] = [];
+  private compassEl: HTMLDivElement;
+  private lastExtent = 100;
 
   // для вращения перетаскиванием мыши
   private isDragging = false;
@@ -40,6 +63,19 @@ export class IsoScene {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
+
+    this.labelRenderer = new CSS2DRenderer();
+    this.labelRenderer.domElement.style.position = 'absolute';
+    this.labelRenderer.domElement.style.top = '0';
+    this.labelRenderer.domElement.style.left = '0';
+    this.labelRenderer.domElement.style.pointerEvents = 'none';
+    container.appendChild(this.labelRenderer.domElement);
+
+    this.compassEl = document.createElement('div');
+    this.compassEl.className = 'iso-compass';
+    this.compassEl.innerHTML =
+      '<div class="iso-compass-dial"><div class="iso-compass-arrow"></div><span class="iso-compass-n">N</span></div>';
+    container.appendChild(this.compassEl);
 
     this.scene = new THREE.Scene();
 
@@ -186,12 +222,28 @@ export class IsoScene {
     const y = r * Math.sin(elevation);
     this.camera.position.set(x, y, z);
     this.camera.lookAt(0, 0, 0);
+    this.updateCompass();
+  }
+
+  // угол на экране, под которым нужно повернуть стрелку "N", чтобы она
+  // указывала на истинный север сцены при текущем повороте камеры
+  private updateCompass() {
+    const forward = new THREE.Vector3(0, 0, 0).sub(this.camera.position).normalize();
+    const up = this.camera.up.clone();
+    const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+    const screenUp = new THREE.Vector3().crossVectors(right, forward).normalize();
+    const north = new THREE.Vector3(0, 0, -1); // соглашение geo.ts: север = -Z
+    const sx = north.dot(right);
+    const sy = north.dot(screenUp);
+    const angleDeg = (Math.atan2(sx, sy) * 180) / Math.PI;
+    this.compassEl.style.setProperty('--angle', `${angleDeg}deg`);
   }
 
   private handleResize() {
     const w = this.container.clientWidth;
     const h = this.container.clientHeight;
     this.renderer.setSize(w, h);
+    this.labelRenderer.setSize(w, h);
     const aspect = w / h;
     const frustum = (this.frustumSize ?? 300) * this.zoomFactor;
     this.camera.left = (-frustum * aspect) / 2;
@@ -208,6 +260,8 @@ export class IsoScene {
       this.scene.remove(this.group);
       disposeGroup(this.group);
     }
+    this.clearLabels();
+    this.clearRiskVisualization();
 
     this.buildingsById.clear();
     this.meshesById.clear();
@@ -225,11 +279,24 @@ export class IsoScene {
         for (const p of b.footprint) {
           maxExtent = Math.max(maxExtent, Math.abs(p.x), Math.abs(p.z));
         }
+
+        const houseNumber = b.tags['addr:housenumber'];
+        if (houseNumber) {
+          const c = centroidOfLocalPoints(b.footprint);
+          const el = document.createElement('div');
+          el.className = 'iso-house-label';
+          el.textContent = houseNumber;
+          const label = new CSS2DObject(el);
+          label.position.set(c.x, b.heightMeters + 2, c.z);
+          group.add(label);
+          this.labelObjects.push(label);
+        }
       }
     }
 
     this.group = group;
     this.scene.add(group);
+    this.lastExtent = maxExtent;
 
     // подгоняем масштаб камеры и дальность под размер сцены
     this.frustumSize = maxExtent * 2.3;
@@ -242,12 +309,94 @@ export class IsoScene {
     this.startLoop();
   }
 
+  private clearLabels() {
+    for (const lbl of this.labelObjects) {
+      lbl.element.remove();
+    }
+    this.labelObjects = [];
+  }
+
+  clearRiskVisualization() {
+    if (this.riskGroup) {
+      this.scene.remove(this.riskGroup);
+      disposeGroup(this.riskGroup);
+      this.riskGroup = null;
+    }
+    for (const lbl of this.riskLabelObjects) {
+      lbl.element.remove();
+    }
+    this.riskLabelObjects = [];
+  }
+
+  showRiskVisualization(input: RiskVisualizationInput) {
+    this.clearRiskVisualization();
+    const group = new THREE.Group();
+    const color = LEVEL_COLOR[input.level];
+
+    // --- луч направления на границу/угрозу ---
+    const bearingRad = (input.bearingToBorderDeg * Math.PI) / 180;
+    const dir = new THREE.Vector3(Math.sin(bearingRad), 0, -Math.cos(bearingRad));
+    const rayLength = this.lastExtent * 1.4;
+    const rayY = input.buildingHeight + 6;
+    const start = new THREE.Vector3(input.buildingCentroid.x, rayY, input.buildingCentroid.z);
+    const end = start.clone().addScaledVector(dir, rayLength);
+
+    const lineGeom = new THREE.BufferGeometry().setFromPoints([start, end]);
+    const lineMat = new THREE.LineDashedMaterial({ color, dashSize: 6, gapSize: 4, linewidth: 1 });
+    const line = new THREE.Line(lineGeom, lineMat);
+    line.computeLineDistances();
+    group.add(line);
+
+    // стрелка-указатель у дальнего конца луча (откуда идёт угроза)
+    const arrow = new THREE.Mesh(
+      new THREE.ConeGeometry(4, 12, 8),
+      new THREE.MeshBasicMaterial({ color })
+    );
+    arrow.position.copy(end);
+    const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().negate());
+    arrow.quaternion.copy(quat);
+    group.add(arrow);
+
+    const arrowLabelEl = document.createElement('div');
+    arrowLabelEl.className = 'iso-ray-label';
+    arrowLabelEl.textContent = 'направление угрозы';
+    const arrowLabel = new CSS2DObject(arrowLabelEl);
+    arrowLabel.position.copy(end);
+    group.add(arrowLabel);
+    this.riskLabelObjects.push(arrowLabel);
+
+    // --- маркеры опасных объектов рядом (если попадают в текущий масштаб сцены) ---
+    for (const h of input.hazards) {
+      const inner = 3 + Math.min(9, h.radiusM / 100);
+      const ringGeom = new THREE.RingGeometry(inner, inner + 1.8, 24);
+      ringGeom.rotateX(-Math.PI / 2);
+      const ring = new THREE.Mesh(
+        ringGeom,
+        new THREE.MeshBasicMaterial({ color: 0xf87171, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+      );
+      ring.position.set(h.x, 0.5, h.z);
+      group.add(ring);
+
+      const labelEl = document.createElement('div');
+      labelEl.className = 'iso-hazard-label';
+      labelEl.textContent = h.name;
+      const label = new CSS2DObject(labelEl);
+      label.position.set(h.x, 3, h.z);
+      group.add(label);
+      this.riskLabelObjects.push(label);
+    }
+
+    this.riskGroup = group;
+    this.scene.add(group);
+  }
+
   private loopStarted = false;
   private startLoop() {
     if (this.loopStarted) return;
     this.loopStarted = true;
     const tick = () => {
       this.renderer.render(this.scene, this.camera);
+      this.labelRenderer.render(this.scene, this.camera);
       requestAnimationFrame(tick);
     };
     tick();
@@ -312,7 +461,7 @@ function touchDistance(touches: TouchList): number {
 
 function disposeGroup(group: THREE.Group) {
   group.traverse((obj) => {
-    if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments) {
+    if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments || obj instanceof THREE.Line) {
       obj.geometry.dispose();
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
       mats.forEach((m) => m.dispose());

@@ -25,6 +25,7 @@ export interface RiskResult {
   elevationProfile: number[];
   hazardMarkers: HazardMarker[];
   borderPoint: LatLon;
+  bearingToBorderDeg: number;
   disclaimer: string;
 }
 
@@ -201,6 +202,7 @@ export async function computeRisk(input: RiskInput): Promise<RiskResult> {
     elevationProfile: elev,
     hazardMarkers,
     borderPoint,
+    bearingToBorderDeg: bearingToBorder,
     disclaimer: RISK_DISCLAIMER,
   };
 }

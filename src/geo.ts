@@ -26,6 +26,16 @@ export function makeProjector(center: LatLon) {
   };
 }
 
+export function centroidOfLocalPoints(points: LocalPoint[]): LocalPoint {
+  let sx = 0;
+  let sz = 0;
+  for (const p of points) {
+    sx += p.x;
+    sz += p.z;
+  }
+  return { x: sx / points.length, z: sz / points.length };
+}
+
 export interface BBox {
   south: number;
   west: number;

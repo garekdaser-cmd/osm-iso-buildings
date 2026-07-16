@@ -2,7 +2,7 @@ import './style.css';
 import { initMap } from './map';
 import { fetchBuildings } from './overpass';
 import { parseBuildings, type Building } from './buildings';
-import { bboxAreaKm2, bboxCenter, type BBox } from './geo';
+import { bboxAreaKm2, bboxCenter, centroidOfLocalPoints, makeProjector, type BBox, type LatLon } from './geo';
 import { IsoScene } from './scene';
 import { computeRisk, RISK_DISCLAIMER } from './risk';
 
@@ -35,9 +35,11 @@ riskDisclaimerTop.textContent = RISK_DISCLAIMER;
 riskDisclaimerBottom.textContent = RISK_DISCLAIMER;
 
 let currentBuildings: Building[] = [];
+let currentCenter: LatLon | null = null;
 let selectedBuilding: Building | null = null;
 
 const map = initMap(mapContainer);
+(window as unknown as { __map?: typeof map }).__map = map;
 let scene: IsoScene | null = null;
 
 function setStatus(text: string) {
@@ -106,10 +108,12 @@ btnRender.addEventListener('click', async () => {
     legend.classList.remove('hidden');
 
     currentBuildings = buildings;
+    currentCenter = center;
 
     if (!scene) {
       scene = new IsoScene(sceneContainer);
       scene.onSelect(handleBuildingSelect);
+      (window as unknown as { __isoScene?: IsoScene }).__isoScene = scene;
     }
     scene.render(buildings);
 
@@ -132,6 +136,7 @@ btnBack.addEventListener('click', () => {
   btnBack.classList.add('hidden');
   legend.classList.add('hidden');
   riskPanel.classList.add('hidden');
+  scene?.clearRiskVisualization();
   mapContainer.classList.remove('hidden');
   mapBorderNote.classList.remove('hidden');
   map.resize();
@@ -152,6 +157,7 @@ function heightSourceLabel(source: Building['heightSource']): string {
 
 function handleBuildingSelect(building: Building) {
   selectedBuilding = building;
+  scene?.clearRiskVisualization();
   riskTitle.textContent = buildingLabel(building);
 
   const floorsGuess = Math.max(1, Math.round(building.heightMeters / 3));
@@ -168,6 +174,7 @@ function handleBuildingSelect(building: Building) {
 
 riskClose.addEventListener('click', () => {
   riskPanel.classList.add('hidden');
+  scene?.clearRiskVisualization();
 });
 
 riskCalcBtn.addEventListener('click', async () => {
@@ -204,6 +211,21 @@ riskCalcBtn.addEventListener('click', async () => {
       .join('');
     riskResult.classList.remove('hidden');
     riskStatus.textContent = '';
+
+    if (scene && currentCenter) {
+      const project = makeProjector(currentCenter);
+      const hazards = result.hazardMarkers.map((h) => {
+        const p = project({ lat: h.lat, lon: h.lon });
+        return { x: p.x, z: p.z, name: h.name, radiusM: h.radiusM };
+      });
+      scene.showRiskVisualization({
+        buildingCentroid: centroidOfLocalPoints(building.footprint),
+        buildingHeight: building.heightMeters,
+        bearingToBorderDeg: result.bearingToBorderDeg,
+        level: result.level,
+        hazards,
+      });
+    }
   } catch (err) {
     console.error(err);
     riskStatus.textContent = 'Ошибка расчёта (не отвечает Overpass или Open-Meteo) — попробуйте ещё раз';
