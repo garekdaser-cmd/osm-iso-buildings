@@ -218,10 +218,11 @@ riskCalcBtn.addEventListener('click', async () => {
         const p = project({ lat: h.lat, lon: h.lon });
         return { x: p.x, z: p.z, name: h.name, radiusM: h.radiusM };
       });
+      const topRays = result.rays.slice(0, 5).map((r) => ({ bearingDeg: r.bearingDeg, score: r.score }));
       scene.showRiskVisualization({
         buildingCentroid: centroidOfLocalPoints(building.footprint),
         buildingHeight: building.heightMeters,
-        bearingToBorderDeg: result.bearingToBorderDeg,
+        rays: topRays,
         level: result.level,
         hazards,
       });

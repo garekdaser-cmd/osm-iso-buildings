@@ -90,6 +90,40 @@ export function nearestBorderPoint(p: LatLon): { point: LatLon; distanceMeters: 
   return { point: best, distanceMeters: bestDist };
 }
 
+// Равномерно (по длине дуги, не по числу узлов) сэмплирует N точек вдоль ВСЕЙ
+// линии границы — используется для мультилучевой оценки риска: угроза может
+// подлететь не только с ближайшего направления, а с любого участка ГГ.
+export function sampleBorderLine(n: number): LatLon[] {
+  const segLengths: number[] = [];
+  let total = 0;
+  for (let i = 0; i < BORDER.length - 1; i++) {
+    const d = haversineDistance(BORDER[i], BORDER[i + 1]);
+    segLengths.push(d);
+    total += d;
+  }
+
+  const points: LatLon[] = [];
+  for (let k = 0; k < n; k++) {
+    const target = n > 1 ? (k / (n - 1)) * total : 0;
+    let acc = 0;
+    let placed = false;
+    for (let i = 0; i < segLengths.length; i++) {
+      const segLen = segLengths[i];
+      if (acc + segLen >= target || i === segLengths.length - 1) {
+        const segT = segLen > 0 ? Math.min(1, Math.max(0, (target - acc) / segLen)) : 0;
+        const a = BORDER[i];
+        const b = BORDER[i + 1];
+        points.push({ lat: a.lat + (b.lat - a.lat) * segT, lon: a.lon + (b.lon - a.lon) * segT });
+        placed = true;
+        break;
+      }
+      acc += segLen;
+    }
+    if (!placed) points.push(BORDER[BORDER.length - 1]);
+  }
+  return points;
+}
+
 export function compassName(deg: number): string {
   const names = ['С', 'СВ', 'В', 'ЮВ', 'Ю', 'ЮЗ', 'З', 'СЗ'];
   return names[Math.round(deg / 45) % 8];

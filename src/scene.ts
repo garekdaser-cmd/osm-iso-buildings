@@ -18,10 +18,15 @@ const LEVEL_COLOR: Record<'low' | 'mid' | 'high', number> = {
   high: 0xf87171,
 };
 
+export interface RiskRayInput {
+  bearingDeg: number;
+  score: number; // относительный вес луча (для толщины/яркости на визуализации)
+}
+
 export interface RiskVisualizationInput {
   buildingCentroid: LocalPoint;
   buildingHeight: number;
-  bearingToBorderDeg: number;
+  rays: RiskRayInput[]; // отсортированы по убыванию риска, [0] — худшее направление (основное)
   level: 'low' | 'mid' | 'high';
   hazards: Array<{ x: number; z: number; name: string; radiusM: number }>;
 }
@@ -331,39 +336,52 @@ export class IsoScene {
   showRiskVisualization(input: RiskVisualizationInput) {
     this.clearRiskVisualization();
     const group = new THREE.Group();
-    const color = LEVEL_COLOR[input.level];
 
-    // --- луч направления на границу/угрозу ---
-    const bearingRad = (input.bearingToBorderDeg * Math.PI) / 180;
-    const dir = new THREE.Vector3(Math.sin(bearingRad), 0, -Math.cos(bearingRad));
     const rayLength = this.lastExtent * 1.4;
     const rayY = input.buildingHeight + 6;
     const start = new THREE.Vector3(input.buildingCentroid.x, rayY, input.buildingCentroid.z);
-    const end = start.clone().addScaledVector(dir, rayLength);
+    const maxScore = input.rays.reduce((m, r) => Math.max(m, r.score), 1);
 
-    const lineGeom = new THREE.BufferGeometry().setFromPoints([start, end]);
-    const lineMat = new THREE.LineDashedMaterial({ color, dashSize: 6, gapSize: 4, linewidth: 1 });
-    const line = new THREE.Line(lineGeom, lineMat);
-    line.computeLineDistances();
-    group.add(line);
+    input.rays.forEach((ray, idx) => {
+      const isPrimary = idx === 0;
+      const bearingRad = (ray.bearingDeg * Math.PI) / 180;
+      const dir = new THREE.Vector3(Math.sin(bearingRad), 0, -Math.cos(bearingRad));
+      const end = start.clone().addScaledVector(dir, rayLength);
+      const relIntensity = maxScore > 0 ? ray.score / maxScore : 0;
+      const color = isPrimary ? LEVEL_COLOR[input.level] : 0xf2a65a;
 
-    // стрелка-указатель у дальнего конца луча (откуда идёт угроза)
-    const arrow = new THREE.Mesh(
-      new THREE.ConeGeometry(4, 12, 8),
-      new THREE.MeshBasicMaterial({ color })
-    );
-    arrow.position.copy(end);
-    const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().negate());
-    arrow.quaternion.copy(quat);
-    group.add(arrow);
+      const lineGeom = new THREE.BufferGeometry().setFromPoints([start, end]);
+      const lineMat = new THREE.LineDashedMaterial({
+        color,
+        dashSize: isPrimary ? 6 : 4,
+        gapSize: isPrimary ? 4 : 7,
+        transparent: true,
+        opacity: isPrimary ? 0.95 : 0.2 + relIntensity * 0.35,
+      });
+      const line = new THREE.Line(lineGeom, lineMat);
+      line.computeLineDistances();
+      group.add(line);
 
-    const arrowLabelEl = document.createElement('div');
-    arrowLabelEl.className = 'iso-ray-label';
-    arrowLabelEl.textContent = 'направление угрозы';
-    const arrowLabel = new CSS2DObject(arrowLabelEl);
-    arrowLabel.position.copy(end);
-    group.add(arrowLabel);
-    this.riskLabelObjects.push(arrowLabel);
+      // стрелка-указатель у дальнего конца луча (откуда идёт угроза)
+      const arrow = new THREE.Mesh(
+        new THREE.ConeGeometry(isPrimary ? 4 : 2.5, isPrimary ? 12 : 8, 8),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: isPrimary ? 1 : 0.55 })
+      );
+      arrow.position.copy(end);
+      const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().negate());
+      arrow.quaternion.copy(quat);
+      group.add(arrow);
+
+      if (isPrimary) {
+        const arrowLabelEl = document.createElement('div');
+        arrowLabelEl.className = 'iso-ray-label';
+        arrowLabelEl.textContent = 'худшее направление угрозы';
+        const arrowLabel = new CSS2DObject(arrowLabelEl);
+        arrowLabel.position.copy(end);
+        group.add(arrowLabel);
+        this.riskLabelObjects.push(arrowLabel);
+      }
+    });
 
     // --- маркеры опасных объектов рядом (если попадают в текущий масштаб сцены) ---
     for (const h of input.hazards) {
