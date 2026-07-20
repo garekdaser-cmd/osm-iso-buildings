@@ -351,40 +351,93 @@ button:disabled {
   top: 70px;
   left: 18px;
   z-index: 8;
-  pointer-events: none;
-}
-
-.iso-compass-dial {
-  position: relative;
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
   background: rgba(11, 30, 45, 0.75);
   border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px 6px;
   backdrop-filter: blur(4px);
 }
 
-.iso-compass-arrow {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0;
-  height: 0;
-  transform: translate(-50%, -100%) rotate(var(--angle, 0deg));
-  transform-origin: 50% 100%;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-bottom: 16px solid var(--cyan);
+.cd-svg {
+  display: block;
+}
+
+.cd-bg {
+  fill: rgba(255, 255, 255, 0.03);
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.cd-arc {
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 7;
+  stroke-linecap: round;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.cd-needle {
+  fill: var(--cyan);
+}
+
+.cd-handle {
+  fill: var(--amber);
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  cursor: grab;
+  pointer-events: all;
+}
+
+.cd-handle:active {
+  cursor: grabbing;
 }
 
 .iso-compass-n {
-  position: absolute;
-  bottom: 3px;
-  left: 50%;
-  transform: translateX(-50%);
   font-size: 9px;
   color: var(--text-dim);
   font-family: var(--font-mono);
+  margin-top: -4px;
+}
+
+.iso-sector-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  cursor: pointer;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.iso-sector-toggle input {
+  accent-color: var(--amber);
+}
+
+.iso-sector-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  width: 100%;
+}
+
+.iso-sector-strength {
+  flex: 1;
+  accent-color: var(--amber);
+}
+
+.iso-sector-strength-label {
+  font-size: 10px;
+  color: var(--amber);
+  font-family: var(--font-mono);
+  min-width: 32px;
 }
 
 /* --- CSS2D-метки в 3D-сцене --- */

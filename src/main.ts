@@ -193,12 +193,15 @@ riskCalcBtn.addEventListener('click', async () => {
       .filter((b) => b.id !== building.id)
       .map((b) => ({ centroid: b.centroid, heightMeters: b.heightMeters }));
 
+    const emphasisSector = scene?.getEmphasisSector() ?? null;
+
     const result = await computeRisk({
       home: building.centroid,
       houseHeightM: building.heightMeters,
       myFloor,
       facadeAzimuth,
       nearbyBuildings,
+      emphasisSector,
       onStatus: (text) => {
         riskStatus.textContent = text;
       },
@@ -218,7 +221,9 @@ riskCalcBtn.addEventListener('click', async () => {
         const p = project({ lat: h.lat, lon: h.lon });
         return { x: p.x, z: p.z, name: h.name, radiusM: h.radiusM };
       });
-      const topRays = result.rays.slice(0, 5).map((r) => ({ bearingDeg: r.bearingDeg, score: r.score }));
+      const topRays = result.rays
+        .slice(0, 5)
+        .map((r) => ({ bearingDeg: r.bearingDeg, score: r.score, emphasized: r.emphasized }));
       scene.showRiskVisualization({
         buildingCentroid: centroidOfLocalPoints(building.footprint),
         buildingHeight: building.heightMeters,

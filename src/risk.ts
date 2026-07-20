@@ -24,6 +24,7 @@ export interface RayResult {
   score: number; // вклад именно этого направления в риск (без учёта hazardBonus)
   maskFrac: number;
   borderPoint: LatLon;
+  emphasized: boolean; // попадает в ручной сектор акцента пользователя
 }
 
 export interface RiskResult {
@@ -42,6 +43,12 @@ export interface NearbyBuilding {
   heightMeters: number;
 }
 
+export interface EmphasisSector {
+  startDeg: number;
+  endDeg: number;
+  strength: number; // 0..0.5 → множитель ×1.0..×1.5
+}
+
 export interface RiskInput {
   home: LatLon;
   houseHeightM: number; // берём из уже известных данных OSM/оценки высоты здания
@@ -49,7 +56,16 @@ export interface RiskInput {
   facadeAzimuth: number | null; // азимут стороны, куда смотрят окна; null = не указано
   nearbyBuildings: NearbyBuilding[]; // здания вокруг (уже загружены для отрисовки — доп. запрос не нужен)
   rayCount?: number; // сколько направлений вдоль границы проверять (по умолчанию 18)
+  emphasisSector?: EmphasisSector | null; // ручной акцент пользователя — НЕ основан на данных
   onStatus?: (text: string) => void;
+}
+
+function inSector(angleDeg: number, startDeg: number, endDeg: number): boolean {
+  const a = ((angleDeg % 360) + 360) % 360;
+  const s = ((startDeg % 360) + 360) % 360;
+  const e = ((endDeg % 360) + 360) % 360;
+  if (s <= e) return a >= s && a <= e;
+  return a >= s || a <= e; // дуга проходит через 0°
 }
 
 const HAZARD_WEIGHTS: Array<{
@@ -186,9 +202,16 @@ export async function computeRisk(input: RiskInput): Promise<RiskResult> {
     const terrainFactor = 1 - 0.5 * maskFrac;
     const relElevFactor = 1 + Math.max(-0.15, Math.min(0.2, relElev / 100));
 
-    const rayScore = baseByDist * terrainFactor * relElevFactor * heightFactor * shieldFactor * facadeFactor * floorFactor;
+    let rayScore = baseByDist * terrainFactor * relElevFactor * heightFactor * shieldFactor * facadeFactor * floorFactor;
 
-    rays.push({ bearingDeg: bearingToBorder, distanceKm: distKm, score: rayScore, maskFrac, borderPoint });
+    const emphasized = input.emphasisSector
+      ? inSector(bearingToBorder, input.emphasisSector.startDeg, input.emphasisSector.endDeg)
+      : false;
+    if (emphasized && input.emphasisSector) {
+      rayScore *= 1 + input.emphasisSector.strength;
+    }
+
+    rays.push({ bearingDeg: bearingToBorder, distanceKm: distKm, score: rayScore, maskFrac, borderPoint, emphasized });
   }
 
   // худшее направление определяет итоговую оценку — для безопасности важен
@@ -221,6 +244,20 @@ export async function computeRisk(input: RiskInput): Promise<RiskResult> {
         rays.reduce((a, r) => a + r.score, 0) / rays.length
       ).toFixed(0)})`,
     },
+  ];
+
+  if (input.emphasisSector) {
+    rows.push({
+      label: '⚠ Ручной акцент пользователя',
+      value: `сектор ${Math.round(input.emphasisSector.startDeg)}°–${Math.round(
+        input.emphasisSector.endDeg
+      )}° усилен на +${Math.round(input.emphasisSector.strength * 100)}% — это предположение, не основано на данных${
+        worst.emphasized ? '; худшее направление попало в этот сектор' : ''
+      }`,
+    });
+  }
+
+  rows.push(
     { label: 'Худшее направление — расстояние', value: `${worst.distanceKm.toFixed(1)} км` },
     { label: 'Худшее направление — азимут', value: `${Math.round(worst.bearingDeg)}° (${compassName(worst.bearingDeg)})` },
     { label: 'Маскирование рельефом (худшее направление)', value: `${Math.round(worst.maskFrac * 100)}%` },
@@ -239,8 +276,8 @@ export async function computeRisk(input: RiskInput): Promise<RiskResult> {
       value: nearestHazard
         ? `${nearestHazard.name}, ${(nearestHazard.distanceM / 1000).toFixed(2)} км → +${hazardBonus.toFixed(0)}`
         : 'не найдено в OSM → +0',
-    },
-  ];
+    }
+  );
 
   onStatus?.('Готово.');
 

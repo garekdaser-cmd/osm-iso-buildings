@@ -21,6 +21,7 @@ const LEVEL_COLOR: Record<'low' | 'mid' | 'high', number> = {
 export interface RiskRayInput {
   bearingDeg: number;
   score: number; // относительный вес луча (для толщины/яркости на визуализации)
+  emphasized?: boolean; // попал в ручной сектор акцента — красим отдельным цветом
 }
 
 export interface RiskVisualizationInput {
@@ -49,6 +50,20 @@ export class IsoScene {
   private riskGroup: THREE.Group | null = null;
   private riskLabelObjects: CSS2DObject[] = [];
   private compassEl: HTMLDivElement;
+  private compassArc!: SVGPathElement;
+  private compassNeedleGroup!: SVGGElement;
+  private compassHandleA!: SVGCircleElement;
+  private compassHandleB!: SVGCircleElement;
+  private lastNorthScreenAngle = 0;
+
+  // сектор ручного акцента (в АБСОЛЮТНЫХ азимутах — не зависит от поворота камеры)
+  private sectorEnabled = false;
+  private sectorStartDeg = 200;
+  private sectorEndDeg = 260;
+  private sectorStrength = 0.25; // 0..0.5 → множитель ×1.0..×1.5
+  private draggingHandle: 'a' | 'b' | null = null;
+  private onSectorChange: (() => void) | null = null;
+
   private lastExtent = 100;
 
   // для вращения перетаскиванием мыши
@@ -78,9 +93,33 @@ export class IsoScene {
 
     this.compassEl = document.createElement('div');
     this.compassEl.className = 'iso-compass';
-    this.compassEl.innerHTML =
-      '<div class="iso-compass-dial"><div class="iso-compass-arrow"></div><span class="iso-compass-n">N</span></div>';
+    this.compassEl.innerHTML = `
+      <svg class="cd-svg" viewBox="0 0 100 100" width="84" height="84">
+        <circle class="cd-bg" cx="50" cy="50" r="40" />
+        <path class="cd-arc" d="" />
+        <g class="cd-needle-group">
+          <polygon class="cd-needle" points="50,14 45,28 55,28" />
+        </g>
+        <circle class="cd-handle cd-handle-a" cx="50" cy="10" r="6" />
+        <circle class="cd-handle cd-handle-b" cx="50" cy="10" r="6" />
+      </svg>
+      <span class="iso-compass-n">N</span>
+      <label class="iso-sector-toggle">
+        <input type="checkbox" class="iso-sector-checkbox" />
+        ручной акцент
+      </label>
+      <div class="iso-sector-controls hidden">
+        <input type="range" class="iso-sector-strength" min="0" max="50" value="25" />
+        <span class="iso-sector-strength-label">+25%</span>
+      </div>
+    `;
     container.appendChild(this.compassEl);
+
+    this.compassArc = this.compassEl.querySelector('.cd-arc')!;
+    this.compassNeedleGroup = this.compassEl.querySelector('.cd-needle-group')!;
+    this.compassHandleA = this.compassEl.querySelector('.cd-handle-a')!;
+    this.compassHandleB = this.compassEl.querySelector('.cd-handle-b')!;
+    this.bindCompassInteraction();
 
     this.scene = new THREE.Scene();
 
@@ -231,7 +270,9 @@ export class IsoScene {
   }
 
   // угол на экране, под которым нужно повернуть стрелку "N", чтобы она
-  // указывала на истинный север сцены при текущем повороте камеры
+  // указывала на истинный север сцены при текущем повороте камеры.
+  // Сектор акцента хранится в АБСОЛЮТНЫХ азимутах и на экране рисуется
+  // со сдвигом на этот же угол — так дуга "едет" вместе со стрелкой при повороте сцены.
   private updateCompass() {
     const forward = new THREE.Vector3(0, 0, 0).sub(this.camera.position).normalize();
     const up = this.camera.up.clone();
@@ -241,7 +282,88 @@ export class IsoScene {
     const sx = north.dot(right);
     const sy = north.dot(screenUp);
     const angleDeg = (Math.atan2(sx, sy) * 180) / Math.PI;
-    this.compassEl.style.setProperty('--angle', `${angleDeg}deg`);
+    this.lastNorthScreenAngle = angleDeg;
+    this.compassNeedleGroup.setAttribute('transform', `rotate(${angleDeg} 50 50)`);
+    this.redrawSector();
+  }
+
+  private redrawSector() {
+    const startScreen = this.sectorStartDeg + this.lastNorthScreenAngle;
+    const endScreen = this.sectorEndDeg + this.lastNorthScreenAngle;
+
+    const a = polarToCartesian(50, 50, 40, startScreen);
+    const b = polarToCartesian(50, 50, 40, endScreen);
+    this.compassHandleA.setAttribute('cx', String(a.x));
+    this.compassHandleA.setAttribute('cy', String(a.y));
+    this.compassHandleB.setAttribute('cx', String(b.x));
+    this.compassHandleB.setAttribute('cy', String(b.y));
+
+    if (this.sectorEnabled) {
+      this.compassArc.setAttribute('d', describeArc(50, 50, 40, startScreen, endScreen));
+      this.compassArc.setAttribute('opacity', '1');
+    } else {
+      this.compassArc.setAttribute('opacity', '0');
+    }
+  }
+
+  private bindCompassInteraction() {
+    const checkbox = this.compassEl.querySelector<HTMLInputElement>('.iso-sector-checkbox')!;
+    const controls = this.compassEl.querySelector<HTMLElement>('.iso-sector-controls')!;
+    const strengthInput = this.compassEl.querySelector<HTMLInputElement>('.iso-sector-strength')!;
+    const strengthLabel = this.compassEl.querySelector<HTMLElement>('.iso-sector-strength-label')!;
+
+    checkbox.addEventListener('change', () => {
+      this.sectorEnabled = checkbox.checked;
+      controls.classList.toggle('hidden', !this.sectorEnabled);
+      this.redrawSector();
+      this.onSectorChange?.();
+    });
+
+    strengthInput.addEventListener('input', () => {
+      this.sectorStrength = Number(strengthInput.value) / 100;
+      strengthLabel.textContent = `+${strengthInput.value}%`;
+      this.onSectorChange?.();
+    });
+
+    const startDrag = (handle: 'a' | 'b') => (e: PointerEvent) => {
+      e.stopPropagation();
+      this.draggingHandle = handle;
+      if (!this.sectorEnabled) {
+        this.sectorEnabled = true;
+        checkbox.checked = true;
+        controls.classList.remove('hidden');
+      }
+    };
+    this.compassHandleA.addEventListener('pointerdown', startDrag('a'));
+    this.compassHandleB.addEventListener('pointerdown', startDrag('b'));
+
+    window.addEventListener('pointermove', (e) => {
+      if (!this.draggingHandle) return;
+      const svg = this.compassEl.querySelector('svg')!;
+      const rect = svg.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const dx = e.clientX - cx;
+      const dy = e.clientY - cy;
+      const screenAngle = (Math.atan2(dx, -dy) * 180) / Math.PI;
+      const absBearing = ((screenAngle - this.lastNorthScreenAngle) % 360 + 360) % 360;
+      if (this.draggingHandle === 'a') this.sectorStartDeg = absBearing;
+      else this.sectorEndDeg = absBearing;
+      this.redrawSector();
+      this.onSectorChange?.();
+    });
+    window.addEventListener('pointerup', () => {
+      this.draggingHandle = null;
+    });
+  }
+
+  onSectorUpdate(cb: () => void) {
+    this.onSectorChange = cb;
+  }
+
+  getEmphasisSector(): { startDeg: number; endDeg: number; strength: number } | null {
+    if (!this.sectorEnabled) return null;
+    return { startDeg: this.sectorStartDeg, endDeg: this.sectorEndDeg, strength: this.sectorStrength };
   }
 
   private handleResize() {
@@ -348,7 +470,7 @@ export class IsoScene {
       const dir = new THREE.Vector3(Math.sin(bearingRad), 0, -Math.cos(bearingRad));
       const end = start.clone().addScaledVector(dir, rayLength);
       const relIntensity = maxScore > 0 ? ray.score / maxScore : 0;
-      const color = isPrimary ? LEVEL_COLOR[input.level] : 0xf2a65a;
+      const color = isPrimary ? LEVEL_COLOR[input.level] : ray.emphasized ? 0xc084fc : 0xf2a65a;
 
       const lineGeom = new THREE.BufferGeometry().setFromPoints([start, end]);
       const lineMat = new THREE.LineDashedMaterial({
@@ -356,7 +478,7 @@ export class IsoScene {
         dashSize: isPrimary ? 6 : 4,
         gapSize: isPrimary ? 4 : 7,
         transparent: true,
-        opacity: isPrimary ? 0.95 : 0.2 + relIntensity * 0.35,
+        opacity: isPrimary ? 0.95 : ray.emphasized ? 0.5 + relIntensity * 0.35 : 0.2 + relIntensity * 0.35,
       });
       const line = new THREE.Line(lineGeom, lineMat);
       line.computeLineDistances();
@@ -470,6 +592,20 @@ function buildingMesh(b: Building): { group: THREE.Group; mesh: THREE.Mesh } | n
   group.add(mesh);
   group.add(line);
   return { group, mesh };
+}
+
+function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function describeArc(cx: number, cy: number, r: number, startAngleDeg: number, endAngleDeg: number): string {
+  const start = polarToCartesian(cx, cy, r, endAngleDeg);
+  const end = polarToCartesian(cx, cy, r, startAngleDeg);
+  let sweep = endAngleDeg - startAngleDeg;
+  sweep = ((sweep % 360) + 360) % 360;
+  const largeArcFlag = sweep <= 180 ? '0' : '1';
+  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`;
 }
 
 function touchDistance(touches: TouchList): number {
